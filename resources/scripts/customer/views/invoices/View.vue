@@ -1,6 +1,12 @@
 <template>
   <BasePage class="xl:pl-96">
-    <BasePageHeader :title="pageTitle.invoice_number">
+    <BasePageHeader
+      :title="
+        pageTitle.is_credit_note
+          ? `${$t('invoices.credit_note')} ${pageTitle.invoice_number}`
+          : pageTitle.invoice_number
+      "
+    >
       <template #actions>
         <BaseButton
           :disabled="isSendingEmail"

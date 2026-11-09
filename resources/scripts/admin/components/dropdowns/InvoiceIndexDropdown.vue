@@ -68,7 +68,11 @@
     <!-- Record payment  -->
     <router-link :to="`/admin/payments/${row.id}/create`">
       <BaseDropdownItem
-        v-if="row.status == 'SENT' && route.name !== 'invoices.view'"
+        v-if="
+          row.status == 'SENT' &&
+          route.name !== 'invoices.view' &&
+          !row.is_credit_note
+        "
       >
         <BaseIcon
           name="CreditCardIcon"
@@ -89,7 +93,9 @@
 
     <!-- Clone Invoice into new invoice  -->
     <BaseDropdownItem
-      v-if="userStore.hasAbilities(abilities.CREATE_INVOICE)"
+    v-if="
+      userStore.hasAbilities(abilities.CREATE_INVOICE) && !row.is_credit_note
+    "
       @click="cloneInvoiceData(row)"
     >
       <BaseIcon

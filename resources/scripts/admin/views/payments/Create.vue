@@ -424,6 +424,7 @@ function onCustomerChange(customer_id) {
     let data = {
       customer_id: customer_id,
       status: 'DUE',
+      is_credit_note: '0',
       limit: 'all',
     }
 

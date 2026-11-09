@@ -19,6 +19,12 @@ class InvoiceResource extends JsonResource
             'invoice_date' => $this->invoice_date,
             'due_date' => $this->due_date,
             'invoice_number' => $this->invoice_number,
+            'is_credit_note' => $this->is_credit_note,
+            'original_invoice' => $this->when($this->originalInvoice()->exists(), function () {
+                return [
+                    'invoice_number' => $this->originalInvoice->invoice_number,
+                ];
+            }),
             'reference_number' => $this->reference_number,
             'status' => $this->status,
             'paid_status' => $this->paid_status,

@@ -76,11 +76,13 @@ I
 import axios from 'axios'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import InvoiceInformationCard from '@/scripts/components/InvoiceInformationCard.vue'
 
 let invoiceData = ref(null)
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 
 loadInvoice()
 
@@ -106,7 +108,11 @@ const customerLogo = computed(() => {
   return false
 })
 
-const pageTitle = computed(() => invoiceData.value?.invoice_number)
+const pageTitle = computed(() =>
+  invoiceData.value?.is_credit_note
+    ? `${t('invoices.credit_note')} ${invoiceData.value.invoice_number}`
+    : invoiceData.value?.invoice_number
+)
 
 function payInvoice() {
   router.push({

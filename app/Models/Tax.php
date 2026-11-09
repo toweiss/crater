@@ -62,14 +62,18 @@ class Tax extends Model
 
     public function scopeWhereCompany($query, $company_id)
     {
-        $query->where('company_id', $company_id);
+        $query->where('taxes.company_id', $company_id);
     }
 
     public function scopeTaxAttributes($query)
     {
+        $query->leftJoin('invoices as tax_invoice', 'tax_invoice.id', '=', 'taxes.invoice_id')
+            ->leftJoin('invoice_items', 'invoice_items.id', '=', 'taxes.invoice_item_id')
+            ->leftJoin('invoices as item_invoice', 'item_invoice.id', '=', 'invoice_items.invoice_id');
+
         $query->select(
-            DB::raw('sum(base_amount) as total_tax_amount, tax_type_id')
-        )->groupBy('tax_type_id');
+            DB::raw('SUM(CASE WHEN COALESCE(tax_invoice.is_credit_note, item_invoice.is_credit_note, 0) = 1 THEN -taxes.base_amount ELSE taxes.base_amount END) as total_tax_amount, taxes.tax_type_id')
+        )->groupBy('taxes.tax_type_id');
     }
 
     public function scopeInvoicesBetween($query, $start, $end)

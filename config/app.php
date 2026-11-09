@@ -167,6 +167,7 @@ return [
         Crater\Providers\BroadcastServiceProvider::class,
         Crater\Providers\EventServiceProvider::class,
         Crater\Providers\RouteServiceProvider::class,
+        Crater\Providers\CustomRouteServiceProvider::class, // CUSTOM Provider
         Crater\Providers\DropboxServiceProvider::class,
         Crater\Providers\ViewServiceProvider::class,
         Barryvdh\LaravelIdeHelper\IdeHelperServiceProvider::class,

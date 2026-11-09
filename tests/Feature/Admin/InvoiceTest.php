@@ -8,6 +8,7 @@ use Crater\Models\InvoiceItem;
 use Crater\Models\Tax;
 use Crater\Models\User;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
 
 use function Pest\Laravel\getJson;
@@ -59,6 +60,90 @@ test('create invoice', function () {
         'item_id' => $invoice['items'][0]['item_id'],
         'name' => $invoice['items'][0]['name']
     ]);
+});
+
+test('create credit note applies and later restores the original invoice balance', function () {
+    Queue::fake();
+
+    $originalInvoice = Invoice::factory()->create([
+        'invoice_number' => 'ORIGINAL-'.uniqid(),
+        'total' => 10000,
+        'due_amount' => 10000,
+        'base_total' => 10000,
+        'base_due_amount' => 10000,
+    ]);
+
+    $creditNote = Invoice::factory()->raw([
+        'invoice_number' => 'GS-'.uniqid(),
+        'customer_id' => $originalInvoice->customer_id,
+        'company_id' => $originalInvoice->company_id,
+        'is_credit_note' => true,
+        'original_invoice_id' => $originalInvoice->id,
+        'sub_total' => 2500,
+        'total' => 2500,
+        'tax' => 0,
+        'discount' => 0,
+        'discount_val' => 0,
+        'base_sub_total' => 2500,
+        'base_total' => 2500,
+        'base_due_amount' => 2500,
+        'items' => [InvoiceItem::factory()->raw()],
+        'taxes' => [],
+    ]);
+
+    postJson('api/v1/invoices', $creditNote)->assertOk();
+
+    $savedCreditNote = Invoice::where('invoice_number', $creditNote['invoice_number'])->firstOrFail();
+    expect($savedCreditNote->is_credit_note)->toBeTrue();
+    expect($savedCreditNote->due_amount)->toBe(0);
+    expect($originalInvoice->fresh()->due_amount)->toBe(7500);
+    getJson('api/v1/invoices?is_credit_note=1&limit=all')
+        ->assertJsonFragment(['invoice_number' => $creditNote['invoice_number']]);
+    getJson('api/v1/invoices?is_credit_note=0&limit=all')
+        ->assertJsonMissing(['invoice_number' => $creditNote['invoice_number']]);
+
+    $creditNote['id'] = $savedCreditNote->id;
+    $creditNote['total'] = 3000;
+    $creditNote['sub_total'] = 3000;
+    $creditNote['base_total'] = 3000;
+    putJson('api/v1/invoices/'.$savedCreditNote->id, $creditNote)->assertOk();
+    expect($originalInvoice->fresh()->due_amount)->toBe(7000);
+
+    postJson('api/v1/invoices/delete', ['ids' => [$savedCreditNote->id]])->assertOk();
+    expect($originalInvoice->fresh()->due_amount)->toBe(10000);
+});
+
+test('credit notes cannot exceed the remaining invoice balance', function () {
+    Queue::fake();
+
+    $originalInvoice = Invoice::factory()->create([
+        'invoice_number' => 'ORIGINAL-'.uniqid(),
+        'total' => 10000,
+        'due_amount' => 10000,
+        'base_total' => 10000,
+        'base_due_amount' => 10000,
+    ]);
+
+    $creditNote = Invoice::factory()->raw([
+        'invoice_number' => 'GS-'.uniqid(),
+        'customer_id' => $originalInvoice->customer_id,
+        'company_id' => $originalInvoice->company_id,
+        'is_credit_note' => true,
+        'original_invoice_id' => $originalInvoice->id,
+        'sub_total' => 10001,
+        'total' => 10001,
+        'tax' => 0,
+        'discount' => 0,
+        'discount_val' => 0,
+        'items' => [InvoiceItem::factory()->raw()],
+        'taxes' => [],
+    ]);
+
+    postJson('api/v1/invoices', $creditNote)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('total');
+
+    expect($originalInvoice->fresh()->due_amount)->toBe(10000);
 });
 
 test('create invoice as sent', function () {

@@ -24,13 +24,13 @@
           />
           <BaseBreadcrumbItem
             v-if="$route.name === 'invoices.edit'"
-            :title="$t('invoices.edit_invoice')"
+            :title="isCreditNote ? $t('invoices.edit_credit_note') : $t('invoices.edit_invoice')"
             to="#"
             active
           />
           <BaseBreadcrumbItem
             v-else
-            :title="$t('invoices.new_invoice')"
+            :title="isCreditNote ? $t('invoices.new_credit_note') : $t('invoices.new_invoice')"
             to="#"
             active
           />
@@ -62,7 +62,7 @@
                 :class="slotProps.class"
               />
             </template>
-            {{ $t('invoices.save_invoice') }}
+            {{ isCreditNote ? $t('invoices.save_credit_note') : $t('invoices.save_invoice') }}
           </BaseButton>
         </template>
       </BasePageHeader>
@@ -72,6 +72,7 @@
         :v="v$"
         :is-loading="isLoadingContent"
         :is-edit="isEdit"
+        :source-invoices="sourceInvoices"
       />
 
       <BaseScrollPane>
@@ -175,6 +176,7 @@ let router = useRouter()
 const invoiceValidationScope = 'newInvoice'
 let isSaving = ref(false)
 const isMarkAsDefault = ref(false)
+const sourceInvoices = ref([])
 
 const invoiceNoteFieldList = ref([
   'customer',
@@ -189,7 +191,13 @@ let isLoadingContent = computed(
 )
 
 let pageTitle = computed(() =>
-  isEdit.value ? t('invoices.edit_invoice') : t('invoices.new_invoice')
+  isCreditNote.value
+    ? isEdit.value
+      ? t('invoices.edit_credit_note')
+      : t('invoices.new_credit_note')
+    : isEdit.value
+      ? t('invoices.edit_invoice')
+      : t('invoices.new_invoice')
 )
 
 const salesTaxEnabled = computed(() => {
@@ -200,6 +208,7 @@ const salesTaxEnabled = computed(() => {
 })
 
 let isEdit = computed(() => route.name === 'invoices.edit')
+let isCreditNote = computed(() => invoiceStore.newInvoice.is_credit_note)
 
 const rules = {
   invoice_date: {
@@ -213,6 +222,12 @@ const rules = {
   },
   customer_id: {
     required: helpers.withMessage(t('validation.required'), required),
+  },
+  original_invoice_id: {
+    required: helpers.withMessage(
+      t('validation.required'),
+      requiredIf(() => isCreditNote.value)
+    ),
   },
   invoice_number: {
     required: helpers.withMessage(t('validation.required'), required),
@@ -235,6 +250,7 @@ const v$ = useVuelidate(
 customFieldStore.resetCustomFields()
 v$.value.$reset
 invoiceStore.resetCurrentInvoice()
+invoiceStore.newInvoice.is_credit_note = route.query.credit_note === '1'
 invoiceStore.fetchInvoiceInitialSettings(isEdit.value)
 
 watch(
@@ -247,6 +263,40 @@ watch(
         companyStore.selectedCompanyCurrency
     }
   }
+)
+
+watch(
+  () => invoiceStore.newInvoice.customer_id,
+  async (customerId, previousCustomerId) => {
+    if (!invoiceStore.newInvoice.is_credit_note) {
+      return
+    }
+
+    if (previousCustomerId && customerId !== previousCustomerId) {
+      invoiceStore.newInvoice.original_invoice_id = null
+    }
+
+    if (!customerId) {
+      sourceInvoices.value = []
+      return
+    }
+
+    try {
+      const response = await invoiceStore.fetchInvoices({
+        customer_id: customerId,
+        is_credit_note: '0',
+        limit: 'all',
+      })
+      sourceInvoices.value = response.data.data.filter(
+        (invoice) =>
+          Number(invoice.due_amount) > 0 ||
+          invoice.id == invoiceStore.newInvoice.original_invoice_id
+      )
+    } catch (error) {
+      console.error(error)
+    }
+  },
+  { immediate: true }
 )
 
 async function submitForm() {

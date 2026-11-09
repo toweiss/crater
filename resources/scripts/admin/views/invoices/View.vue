@@ -38,7 +38,11 @@ const searchData = reactive({
   searchText: null,
 })
 
-const pageTitle = computed(() => invoiceData.value.invoice_number)
+const pageTitle = computed(() =>
+  invoiceData.value.is_credit_note
+    ? `${t('invoices.credit_note')} ${invoiceData.value.invoice_number}`
+    : invoiceData.value.invoice_number
+)
 
 const getOrderBy = computed(() => {
   if (searchData.orderBy === 'asc' || searchData.orderBy == null) {
@@ -262,7 +266,10 @@ onSearched = debounce(onSearched, 500)
 
         <!-- Record Payment  -->
         <router-link
-          v-if="userStore.hasAbilities(abilities.CREATE_PAYMENT)"
+          v-if="
+            userStore.hasAbilities(abilities.CREATE_PAYMENT) &&
+            !invoiceData.is_credit_note
+          "
           :to="`/admin/payments/${$route.params.id}/create`"
         >
           <BaseButton
@@ -283,6 +290,14 @@ onSearched = debounce(onSearched, 500)
         />
       </template>
     </BasePageHeader>
+
+    <div
+      v-if="invoiceData.is_credit_note && invoiceData.original_invoice"
+      class="mt-4 text-sm text-gray-600"
+    >
+      {{ $t('invoices.original_invoice') }}:
+      {{ invoiceData.original_invoice.invoice_number }}
+    </div>
 
     <!-- sidebar -->
     <div

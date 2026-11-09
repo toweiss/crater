@@ -75,7 +75,7 @@ class InvoiceItem extends Model
     public function scopeItemAttributes($query)
     {
         $query->select(
-            DB::raw('sum(quantity) as total_quantity, sum(base_total) as total_amount, invoice_items.name')
+            DB::raw('SUM(CASE WHEN EXISTS (SELECT 1 FROM invoices WHERE invoices.id = invoice_items.invoice_id AND invoices.is_credit_note = 1) THEN -invoice_items.quantity ELSE invoice_items.quantity END) as total_quantity, SUM(CASE WHEN EXISTS (SELECT 1 FROM invoices WHERE invoices.id = invoice_items.invoice_id AND invoices.is_credit_note = 1) THEN -invoice_items.base_total ELSE invoice_items.base_total END) as total_amount, invoice_items.name')
         )->groupBy('invoice_items.name');
     }
 }

@@ -11,8 +11,10 @@ use Crater\Traits\GeneratesPdfTrait;
 use Crater\Traits\HasCustomFieldsTrait;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Nwidart\Modules\Facades\Module;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
@@ -48,7 +50,8 @@ class Invoice extends Model implements HasMedia
         'sub_total' => 'integer',
         'discount' => 'float',
         'discount_val' => 'integer',
-        'exchange_rate' => 'float'
+        'exchange_rate' => 'float',
+        'is_credit_note' => 'boolean',
     ];
 
     protected $guarded = [
@@ -85,6 +88,17 @@ class Invoice extends Model implements HasMedia
     public function payments()
     {
         return $this->hasMany(Payment::class);
+    }
+
+    public function originalInvoice()
+    {
+        return $this->belongsTo(self::class, 'original_invoice_id');
+    }
+
+    public function creditNotes()
+    {
+        return $this->hasMany(self::class, 'original_invoice_id')
+            ->where('is_credit_note', true);
     }
 
     public function currency()
@@ -278,6 +292,13 @@ class Invoice extends Model implements HasMedia
             $query->whereCustomer($filters->get('customer_id'));
         }
 
+        if ($filters->has('is_credit_note')) {
+            $query->where('invoices.is_credit_note', filter_var(
+                $filters->get('is_credit_note'),
+                FILTER_VALIDATE_BOOLEAN
+            ));
+        }
+
         if ($filters->get('orderByField') || $filters->get('orderBy')) {
             $field = $filters->get('orderByField') ? $filters->get('orderByField') : 'sequence_number';
             $orderBy = $filters->get('orderBy') ? $filters->get('orderBy') : 'desc';
@@ -316,126 +337,170 @@ class Invoice extends Model implements HasMedia
 
     public static function createInvoice($request)
     {
-        $data = $request->getInvoicePayload();
+        return DB::transaction(function () use ($request) {
+            $data = $request->getInvoicePayload();
+            $originalInvoice = null;
 
-        if ($request->has('invoiceSend')) {
-            $data['status'] = Invoice::STATUS_SENT;
-        }
+            if ($request->has('invoiceSend')) {
+                $data['status'] = Invoice::STATUS_SENT;
+            }
 
-        $invoice = Invoice::create($data);
+            if ($data['is_credit_note']) {
+                $originalInvoice = Invoice::whereKey($data['original_invoice_id'])
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-        $serial = (new SerialNumberFormatter())
-            ->setModel($invoice)
-            ->setCompany($invoice->company_id)
-            ->setCustomer($invoice->customer_id)
-            ->setNextNumbers();
+                if ($data['total'] > $originalInvoice->due_amount) {
+                    throw ValidationException::withMessages([
+                        'total' => 'The credit note exceeds the available amount of the original invoice.',
+                    ]);
+                }
 
-        $invoice->sequence_number = $serial->nextSequenceNumber;
-        $invoice->customer_sequence_number = $serial->nextCustomerSequenceNumber;
-        $invoice->unique_hash = Hashids::connection(Invoice::class)->encode($invoice->id);
-        $invoice->save();
+                $data['due_amount'] = 0;
+                $data['base_due_amount'] = 0;
+                $data['paid_status'] = Invoice::STATUS_PAID;
+            }
 
-        self::createItems($invoice, $request->items);
+            $invoice = Invoice::create($data);
 
-        $company_currency = CompanySetting::getSetting('currency', $request->header('company'));
+            $serial = (new SerialNumberFormatter())
+                ->setModel($invoice)
+                ->setCompany($invoice->company_id)
+                ->setCustomer($invoice->customer_id)
+                ->setNextNumbers();
 
-        if ((string)$data['currency_id'] !== $company_currency) {
-            ExchangeRateLog::addExchangeRateLog($invoice);
-        }
+            $invoice->sequence_number = $serial->nextSequenceNumber;
+            $invoice->customer_sequence_number = $serial->nextCustomerSequenceNumber;
+            $invoice->unique_hash = Hashids::connection(Invoice::class)->encode($invoice->id);
+            $invoice->save();
 
-        if ($request->has('taxes') && (! empty($request->taxes))) {
-            self::createTaxes($invoice, $request->taxes);
-        }
+            self::createItems($invoice, $request->items);
 
-        if ($request->customFields) {
-            $invoice->addCustomFields($request->customFields);
-        }
+            $company_currency = CompanySetting::getSetting('currency', $request->header('company'));
 
-        $invoice = Invoice::with([
-            'items',
-            'items.fields',
-            'items.fields.customField',
-            'customer',
-            'taxes'
-        ])
-            ->find($invoice->id);
+            if ((string)$data['currency_id'] !== $company_currency) {
+                ExchangeRateLog::addExchangeRateLog($invoice);
+            }
 
-        return $invoice;
+            if ($request->has('taxes') && (! empty($request->taxes))) {
+                self::createTaxes($invoice, $request->taxes);
+            }
+
+            if ($request->customFields) {
+                $invoice->addCustomFields($request->customFields);
+            }
+
+            if ($originalInvoice) {
+                $originalInvoice->refreshCreditNoteBalance();
+            }
+
+            return Invoice::with([
+                'items',
+                'items.fields',
+                'items.fields.customField',
+                'customer',
+                'taxes',
+                'originalInvoice',
+            ])->find($invoice->id);
+        });
     }
 
     public function updateInvoice($request)
     {
-        $serial = (new SerialNumberFormatter())
-            ->setModel($this)
-            ->setCompany($this->company_id)
-            ->setCustomer($request->customer_id)
-            ->setModelObject($this->id)
-            ->setNextNumbers();
+        return DB::transaction(function () use ($request) {
+            $oldOriginalInvoiceId = $this->original_invoice_id;
+            $serial = (new SerialNumberFormatter())
+                ->setModel($this)
+                ->setCompany($this->company_id)
+                ->setCustomer($request->customer_id)
+                ->setModelObject($this->id)
+                ->setNextNumbers();
 
-        $data = $request->getInvoicePayload();
-        $oldTotal = $this->total;
+            $data = $request->getInvoicePayload();
+            if ($this->is_credit_note) {
+                $originalInvoice = Invoice::whereKey($data['original_invoice_id'])
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                $availableAmount = (int) $originalInvoice->due_amount;
 
-        $total_paid_amount = $this->total - $this->due_amount;
+                if ($originalInvoice->id == $oldOriginalInvoiceId) {
+                    $availableAmount += (int) $this->total;
+                }
 
-        if ($total_paid_amount > 0 && $this->customer_id !== $request->customer_id) {
-            return 'customer_cannot_be_changed_after_payment_is_added';
-        }
+                if ((int) $data['total'] > $availableAmount) {
+                    throw ValidationException::withMessages([
+                        'total' => 'The credit note exceeds the available amount of the original invoice.',
+                    ]);
+                }
 
-        if ($request->total < $total_paid_amount) {
-            return 'total_invoice_amount_must_be_more_than_paid_amount';
-        }
+                $data['due_amount'] = 0;
+                $data['base_due_amount'] = 0;
+                $data['paid_status'] = Invoice::STATUS_PAID;
+                $data['status'] = $request->has('invoiceSend') ? Invoice::STATUS_SENT : $this->status;
+            } else {
+                $oldTotal = $this->total;
+                $total_paid_amount = $this->total - $this->due_amount;
 
-        if ($oldTotal != $request->total) {
-            $oldTotal = (int) round($request->total) - (int) $oldTotal;
-        } else {
-            $oldTotal = 0;
-        }
+                if ($total_paid_amount > 0 && $this->customer_id !== $request->customer_id) {
+                    return 'customer_cannot_be_changed_after_payment_is_added';
+                }
 
-        $data['due_amount'] = ($this->due_amount + $oldTotal);
-        $data['base_due_amount'] = $data['due_amount'] * $data['exchange_rate'];
-        $data['customer_sequence_number'] = $serial->nextCustomerSequenceNumber;
+                if ($request->total < $total_paid_amount) {
+                    return 'total_invoice_amount_must_be_more_than_paid_amount';
+                }
 
-        $this->changeInvoiceStatus($data['due_amount']);
+                $oldTotal = $oldTotal != $request->total
+                    ? (int) round($request->total) - (int) $oldTotal
+                    : 0;
 
-        $this->update($data);
+                $data['due_amount'] = ($this->due_amount + $oldTotal);
+                $data['base_due_amount'] = $data['due_amount'] * $data['exchange_rate'];
+                $this->changeInvoiceStatus($data['due_amount']);
+            }
 
-        $company_currency = CompanySetting::getSetting('currency', $request->header('company'));
+            $data['customer_sequence_number'] = $serial->nextCustomerSequenceNumber;
+            $this->update($data);
 
-        if ((string)$data['currency_id'] !== $company_currency) {
-            ExchangeRateLog::addExchangeRateLog($this);
-        }
+            $company_currency = CompanySetting::getSetting('currency', $request->header('company'));
 
-        $this->items->map(function ($item) {
-            $fields = $item->fields()->get();
+            if ((string)$data['currency_id'] !== $company_currency) {
+                ExchangeRateLog::addExchangeRateLog($this);
+            }
 
-            $fields->map(function ($field) {
-                $field->delete();
+            $this->items->map(function ($item) {
+                $item->fields()->get()->each(function ($field) {
+                    $field->delete();
+                });
             });
+
+            $this->items()->delete();
+            $this->taxes()->delete();
+            self::createItems($this, $request->items);
+
+            if ($request->has('taxes') && (! empty($request->taxes))) {
+                self::createTaxes($this, $request->taxes);
+            }
+
+            if ($request->customFields) {
+                $this->updateCustomFields($request->customFields);
+            }
+
+            if ($oldOriginalInvoiceId) {
+                self::find($oldOriginalInvoiceId)->refreshCreditNoteBalance();
+            }
+            if ($this->is_credit_note && $this->original_invoice_id) {
+                self::find($this->original_invoice_id)->refreshCreditNoteBalance();
+            }
+
+            return Invoice::with([
+                'items',
+                'items.fields',
+                'items.fields.customField',
+                'customer',
+                'taxes',
+                'originalInvoice',
+            ])->find($this->id);
         });
-
-        $this->items()->delete();
-        $this->taxes()->delete();
-
-        self::createItems($this, $request->items);
-
-        if ($request->has('taxes') && (! empty($request->taxes))) {
-            self::createTaxes($this, $request->taxes);
-        }
-
-        if ($request->customFields) {
-            $this->updateCustomFields($request->customFields);
-        }
-
-        $invoice = Invoice::with([
-            'items',
-            'items.fields',
-            'items.fields.customField',
-            'customer',
-            'taxes'
-        ])
-            ->find($this->id);
-
-        return $invoice;
     }
 
     public function sendInvoiceData($data)
@@ -708,18 +773,39 @@ class Invoice extends Model implements HasMedia
         $this->save();
     }
 
+    public function refreshCreditNoteBalance()
+    {
+        return DB::transaction(function () {
+            $invoice = self::whereKey($this->id)->lockForUpdate()->firstOrFail();
+            $paidAmount = (int) $invoice->payments()->sum('amount');
+            $creditAmount = (int) $invoice->creditNotes()->sum('total');
+            $invoice->due_amount = max(0, (int) $invoice->total - $paidAmount - $creditAmount);
+            $invoice->base_due_amount = $invoice->due_amount * $invoice->exchange_rate;
+            $invoice->changeInvoiceStatus($invoice->due_amount);
+
+            return $invoice;
+        });
+    }
+
     public static function deleteInvoices($ids)
     {
-        foreach ($ids as $id) {
-            $invoice = self::find($id);
+        return DB::transaction(function () use ($ids) {
+            foreach ($ids as $id) {
+                $invoice = self::find($id);
 
-            if ($invoice->transactions()->exists()) {
-                $invoice->transactions()->delete();
+                if ($invoice->transactions()->exists()) {
+                    $invoice->transactions()->delete();
+                }
+
+                $originalInvoiceId = $invoice->is_credit_note ? $invoice->original_invoice_id : null;
+                $invoice->delete();
+
+                if ($originalInvoiceId) {
+                    self::find($originalInvoiceId)->refreshCreditNoteBalance();
+                }
             }
 
-            $invoice->delete();
-        }
-
-        return true;
+            return true;
+        });
     }
 }

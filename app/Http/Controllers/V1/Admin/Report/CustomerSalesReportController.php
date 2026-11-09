@@ -48,7 +48,7 @@ class CustomerSalesReportController extends Controller
         foreach ($customers as $customer) {
             $customerTotalAmount = 0;
             foreach ($customer->invoices as $invoice) {
-                $customerTotalAmount += $invoice->base_total;
+                $customerTotalAmount += $invoice->is_credit_note ? -$invoice->base_total : $invoice->base_total;
             }
             $customer->totalAmount = $customerTotalAmount;
             $totalAmount += $customerTotalAmount;

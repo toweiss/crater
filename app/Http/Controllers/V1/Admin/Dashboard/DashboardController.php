@@ -66,7 +66,8 @@ class DashboardController extends Controller
                     [$start->format('Y-m-d'), $end->format('Y-m-d')]
                 )
                 ->whereCompany()
-                ->sum('base_total')
+                ->selectRaw('COALESCE(SUM(CASE WHEN is_credit_note = 1 THEN -base_total ELSE base_total END), 0) as total')
+                ->value('total')
             );
             array_push(
                 $expense_totals,
@@ -105,7 +106,8 @@ class DashboardController extends Controller
             [$startDate->format('Y-m-d'), $start->format('Y-m-d')]
         )
             ->whereCompany()
-            ->sum('base_total');
+            ->selectRaw('COALESCE(SUM(CASE WHEN is_credit_note = 1 THEN -base_total ELSE base_total END), 0) as total')
+            ->value('total');
 
         $total_receipts = Payment::whereBetween(
             'payment_date',

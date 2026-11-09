@@ -23,7 +23,8 @@ class InvoicesController extends Controller
 
         $limit = $request->has('limit') ? $request->limit : 10;
 
-        $invoices = Invoice::whereCompany()
+        $invoices = Invoice::with('originalInvoice')
+            ->whereCompany()
             ->join('customers', 'customers.id', '=', 'invoices.customer_id')
             ->applyFilters($request->all())
             ->select('invoices.*', 'customers.name')

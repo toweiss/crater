@@ -9,6 +9,18 @@
       <dl class="sm:divide-y sm:divide-gray-200">
         <div class="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
           <dt class="text-sm font-medium text-gray-500">
+            {{ $t('invoices.invoice') }}
+          </dt>
+          <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+            {{ invoice.is_credit_note ? $t('invoices.credit_note') : $tc('invoices.invoice', 1) }}
+            <span v-if="invoice.original_invoice">
+              – {{ $t('invoices.original_invoice') }}:
+              {{ invoice.original_invoice.invoice_number }}
+            </span>
+          </dd>
+        </div>
+        <div class="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+          <dt class="text-sm font-medium text-gray-500">
             {{ $t('general.from') }}
           </dt>
           <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">

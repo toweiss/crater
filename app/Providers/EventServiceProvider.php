@@ -11,9 +11,17 @@ use Crater\Listeners\Updates\v2\Version210;
 use Crater\Listeners\Updates\v3\Version300;
 use Crater\Listeners\Updates\v3\Version310;
 use Crater\Listeners\Updates\v3\Version311;
+use Crater\Listeners\RenameInvoiceAttachmentOnSend;
+use Crater\Listeners\RenameInvoicePdfMedia;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
+use Illuminate\Mail\Events\MessageSending;
+use Spatie\MediaLibrary\MediaCollections\Events\MediaHasBeenAdded;
+
+
+
+
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -35,6 +43,13 @@ class EventServiceProvider extends ServiceProvider
         ],
         Registered::class => [
             SendEmailVerificationNotification::class,
+        ],
+            // NEU: wenn eine Media-Datei hinzugefügt wurde (z. B. PDF für Rechnungen)
+        MediaHasBeenAdded::class => [
+            RenameInvoicePdfMedia::class,
+        ],
+        MessageSending::class => [
+            RenameInvoiceAttachmentOnSend::class,
         ],
     ];
 

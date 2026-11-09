@@ -6,6 +6,8 @@ export default function () {
   return {
     id: null,
     invoice_number: '',
+    is_credit_note: false,
+    original_invoice_id: null,
     customer: null,
     customer_id: null,
     template_name: null,

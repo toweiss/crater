@@ -35,6 +35,18 @@
             {{ $t('invoices.new_invoice') }}
           </BaseButton>
         </router-link>
+
+        <router-link
+          v-if="userStore.hasAbilities(abilities.CREATE_INVOICE)"
+          to="invoices/create?credit_note=1"
+        >
+          <BaseButton variant="primary" class="ml-4">
+            <template #left="slotProps">
+              <BaseIcon name="PlusIcon" :class="slotProps.class" />
+            </template>
+            {{ $t('invoices.new_credit_note') }}
+          </BaseButton>
+        </router-link>
       </template>
     </BasePageHeader>
 
@@ -104,15 +116,26 @@
         v-if="userStore.hasAbilities(abilities.CREATE_INVOICE)"
         #actions
       >
-        <BaseButton
-          variant="primary-outline"
-          @click="$router.push('/admin/invoices/create')"
-        >
-          <template #left="slotProps">
-            <BaseIcon name="PlusIcon" :class="slotProps.class" />
-          </template>
-          {{ $t('invoices.add_new_invoice') }}
-        </BaseButton>
+        <div class="flex gap-3">
+          <BaseButton
+            variant="primary-outline"
+            @click="$router.push('/admin/invoices/create')"
+          >
+            <template #left="slotProps">
+              <BaseIcon name="PlusIcon" :class="slotProps.class" />
+            </template>
+            {{ $t('invoices.add_new_invoice') }}
+          </BaseButton>
+          <BaseButton
+            variant="primary-outline"
+            @click="$router.push('/admin/invoices/create?credit_note=1')"
+          >
+            <template #left="slotProps">
+              <BaseIcon name="PlusIcon" :class="slotProps.class" />
+            </template>
+            {{ $t('invoices.new_credit_note') }}
+          </BaseButton>
+        </div>
       </template>
     </BaseEmptyPlaceholder>
 
@@ -207,6 +230,12 @@
           >
             {{ row.data.invoice_number }}
           </router-link>
+          <span
+            v-if="row.data.is_credit_note"
+            class="ml-2 rounded bg-orange-100 px-2 py-1 text-xs text-orange-800"
+          >
+            {{ $t('invoices.credit_note') }}
+          </span>
         </template>
 
         <!-- Invoice date  -->

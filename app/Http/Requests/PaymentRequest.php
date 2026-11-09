@@ -4,6 +4,7 @@ namespace Crater\Http\Requests;
 
 use Crater\Models\CompanySetting;
 use Crater\Models\Customer;
+use Crater\Models\Invoice;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -45,6 +46,11 @@ class PaymentRequest extends FormRequest
             ],
             'invoice_id' => [
                 'nullable',
+                function ($attribute, $value, $fail) {
+                    if ($value && Invoice::whereKey($value)->where('is_credit_note', true)->exists()) {
+                        $fail('Credit notes cannot receive payments.');
+                    }
+                },
             ],
             'payment_method_id' => [
                 'nullable',

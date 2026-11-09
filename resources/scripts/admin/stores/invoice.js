@@ -447,6 +447,8 @@ export const useInvoiceStore = (useWindow = false) => {
         const taxTypeStore = useTaxTypeStore()
         const route = useRoute()
         const userStore = useUserStore()
+        const creditNoteNumberFormat =
+          '{{SERIES:GS}}{{DELIMITER:-}}{{SEQUENCE:6}}'
 
         this.isFetchingInitialSettings = true
 
@@ -485,7 +487,11 @@ export const useInvoiceStore = (useWindow = false) => {
           }),
           this.resetSelectedNote(),
           this.fetchInvoiceTemplates(),
-          this.getNextNumber(),
+          this.getNextNumber(
+            route.query.credit_note === '1'
+              ? { format: creditNoteNumberFormat }
+              : {}
+          ),
           taxTypeStore.fetchTaxTypes({ limit: 'all' }),
           ...editActions,
         ])

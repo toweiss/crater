@@ -28,8 +28,8 @@ services:
     environment:
       MYSQL_USER: crater
       MYSQL_PASSWORD: crater
-      MYSQL_DATABASE: crater
-      MYSQL_ROOT_PASSWORD: crater
+      MYSQL_DATABASE: 'rLsMn6x7rzVBjf3UT2nAyrWxX4ByrZdVuq7yW59o'
+      MYSQL_ROOT_PASSWORD: 'NkN6oBb88umQ94ZLZAoRc62wJUWQT6vpuMZE3n7C'
     ports:
       - '33006:3306'
     networks:
@@ -39,7 +39,7 @@ services:
     image: nginx:1.17-alpine
     restart: unless-stopped
     ports:
-      - 80:80
+      - 8080:80
     volumes:
       - ./:/var/www
       - ./docker-compose/nginx:/etc/nginx/conf.d/

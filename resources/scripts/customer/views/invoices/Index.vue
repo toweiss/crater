@@ -99,6 +99,12 @@
           >
             {{ row.data.invoice_number }}
           </router-link>
+          <span
+            v-if="row.data.is_credit_note"
+            class="ml-2 rounded bg-orange-100 px-2 py-1 text-xs text-orange-800"
+          >
+            {{ $t('invoices.credit_note') }}
+          </span>
         </template>
 
         <template #cell-due_amount="{ row }">
